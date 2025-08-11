@@ -91,9 +91,24 @@
   #filterBtn.active {
     background-color: #2e7d32;
   }
+  /* Dedication text top-left */
+  #dedication {
+    position: fixed;
+    top: 10px;
+    left: 15px;
+    color: white;
+    font-family: sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    user-select: none;
+    z-index: 10;
+    text-shadow: 0 0 5px rgba(0,0,0,0.7);
+  }
 </style>
 </head>
 <body>
+
+<div id="dedication">for Chanté</div>
 
 <video id="video" autoplay playsinline></video>
 <img id="overlayImage" style="display:none;" />
@@ -189,7 +204,6 @@
     overlayImage.style.left = `${posX}px`;
     overlayImage.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rotation}deg)`;
 
-    // Apply filter CSS if filtered
     if (isFiltered) {
       overlayImage.style.filter = 'grayscale(80%) brightness(120%) contrast(150%)';
     } else {
@@ -348,7 +362,7 @@
 
   // Filter toggle button
   filterBtn.addEventListener('click', () => {
-    if (!overlayImage.src) return; // No image loaded
+    if (!overlayImage.src) return;
     isFiltered = !isFiltered;
     filterBtn.classList.toggle('active', isFiltered);
     updateTransform();
