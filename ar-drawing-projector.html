@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>AR Drawing Projector</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: black;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+            transform: scaleX(-1); /* Mirror for selfie view */
+        }
+
+        #overlayImage {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            max-width: 80vw;
+            max-height: 80vh;
+            transform-origin: center center;
+            transform: translate(-50%, -50%) scale(1) rotate(0deg);
+            opacity: 0.6;
+            touch-action: none;
+            z-index: 2;
+            user-select: none;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-height: 180px;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            color: white;
+            font-family: sans-serif;
+            z-index: 3;
+            box-sizing: border-box;
+        }
+
+            #controls label {
+                font-size: 14px;
+            }
+
+            #controls input[type="range"] {
+                width: 100%;
+            }
+
+            #controls button {
+                width: 100%;
+                font-size: 16px;
+                padding: 10px 0;
+                border-radius: 8px;
+                background-color: #1a73e8;
+                border: none;
+                cursor: pointer;
+            }
+
+                #controls button:hover {
+                    background-color: #1669c1;
+                }
+    </style>
+</head>
+<body>
+
+    <video id="video" autoplay playsinline></video>
+    <img id="overlayImage" style="display:none;" />
+
+    <div id="controls">
+        <label for="opacityRange">Opacity</label>
+        <input type="range" id="opacityRange" min="0" max="100" value="60" />
+
+        <label for="rotateRange">Rotate</label>
+        <input type="range" id="rotateRange" min="-180" max="180" value="0" />
+
+        <button id="uploadBtn">Upload Image</button>
+        <input type="file" id="fileInput" accept="image/*" style="display:none;" />
+        <button id="resetBtn">Reset</button>
+    </div>
+
+    <script>
+        (async () => {
+            const video = document.getElementById('video');
+            const overlayImage = document.getElementById('overlayImage');
+            const fileInput = document.getElementById('fileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const opacityRange = document.getElementById('opacityRange');
+            const rotateRange = document.getElementById('rotateRange');
+
+            // Start camera stream (prefer rear camera)
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } }, audio: false
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                // fallback if exact environment camera not available
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" }, audio: false
+                });
+                video.srcObject = stream;
+            }
+
+            // Variables for transform
+            let posX = window.innerWidth / 2;
+            let posY = window.innerHeight / 2;
+            let scale = 1;
+            let rotation = 0;
+            let lastTouchDist = null;
+            let lastTouchAngle = null;
+            let lastX = 0;
+            let lastY = 0;
+            let dragging = false;
+
+            function updateTransform() {
+                overlayImage.style.transform = `translate(${posX}px, ${posY}px) scale(${scale}) rotate(${rotation}deg) translate(-50%, -50%)`;
+            }
+
+            // Touch/mouse event handlers for dragging, scaling, rotating
+            overlayImage.addEventListener('pointerdown', e => {
+                e.preventDefault();
+                dragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                overlayImage.setPointerCapture(e.pointerId);
+            });
+
+            overlayImage.addEventListener('pointermove', e => {
+                if (!dragging) return;
+                e.preventDefault();
+                let dx = e.clientX - lastX;
+                let dy = e.clientY - lastY;
+                posX += dx;
+                posY += dy;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                updateTransform();
+            });
+
+            overlayImage.addEventListener('pointerup', e => {
+                dragging = false;
+                overlayImage.releasePointerCapture(e.pointerId);
+            });
+
+            // Pinch zoom and rotate support
+            overlayImage.addEventListener('touchmove', e => {
+                if (e.touches.length === 2) {
+                    e.preventDefault();
+                    let t1 = e.touches[0];
+                    let t2 = e.touches[1];
+
+                    let dx = t2.clientX - t1.clientX;
+                    let dy = t2.clientY - t1.clientY;
+                    let dist = Math.hypot(dx, dy);
+                    let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+                    if (lastTouchDist !== null) {
+                        let scaleChange = dist / lastTouchDist;
+                        scale *= scaleChange;
+
+                        let angleChange = angle - lastTouchAngle;
+                        rotation += angleChange;
+                    }
+
+                    lastTouchDist = dist;
+                    lastTouchAngle = angle;
+
+                    updateTransform();
+                }
+            });
+
+            overlayImage.addEventListener('touchend', e => {
+                if (e.touches.length < 2) {
+                    lastTouchDist = null;
+                    lastTouchAngle = null;
+                }
+            });
+
+            // Upload image button handler
+            uploadBtn.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                overlayImage.src = url;
+                overlayImage.style.display = 'block';
+                posX = window.innerWidth / 2;
+                posY = window.innerHeight / 2;
+                scale = 1;
+                rotation = 0;
+                opacityRange.value = 60;
+                rotateRange.value = 0;
+                overlayImage.style.opacity = 0.6;
+                updateTransform();
+            });
+
+            // Opacity control
+            opacityRange.addEventListener('input', e => {
+                overlayImage.style.opacity = e.target.value / 100;
+            });
+
+            // Rotation control (slider)
+            rotateRange.addEventListener('input', e => {
+                rotation = parseInt(e.target.value);
+                updateTransform();
+            });
+
+            // Reset button
+            resetBtn.addEventListener('click', () => {
+                overlayImage.style.display = 'none';
+                overlayImage.src = '';
+            });
+
+            // Initial call to set transform
+            updateTransform();
+
+        })();
+    </script>
+
+</body>
+</html>
