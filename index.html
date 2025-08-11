@@ -136,17 +136,27 @@
 
   // Camera stream (back camera, no flip)
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: "environment" } }, audio: false
-    });
-    video.srcObject = stream;
-  } catch (err) {
-    // fallback if exact environment camera not available
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" }, audio: false
-    });
-    video.srcObject = stream;
-  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { exact: "environment" },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    },
+    audio: false,
+  });
+  video.srcObject = stream;
+} catch (err) {
+  // fallback
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: "environment",
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    },
+    audio: false,
+  });
+  video.srcObject = stream;
+}
 
   // Dragging events (disable if locked)
   overlayImage.addEventListener('pointerdown', e => {
@@ -266,3 +276,4 @@
 
 </body>
 </html>
+
