@@ -19,7 +19,6 @@
     height: 100vh;
     object-fit: cover;
     z-index: 1;
-    /* Removed transform: scaleX(-1); */
   }
   #overlayImage {
     position: fixed;
@@ -38,9 +37,9 @@
     bottom: 0;
     left: 0;
     right: 0;
-    max-height: 220px;
-    background: rgba(0,0,0,0.6);
-    padding: 10px 15px;
+    max-height: 240px;
+    background: rgba(0,0,0,0.7);
+    padding: 10px 15px 30px 15px; /* extra bottom padding */
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -64,9 +63,13 @@
     background-color: #1a73e8;
     border: none;
     cursor: pointer;
+    user-select: none;
   }
   #controls button:hover {
     background-color: #1669c1;
+  }
+  #lockBtn.locked {
+    background-color: #e84545;
   }
 </style>
 </head>
@@ -128,7 +131,32 @@
   let dragging = false;
   let isLocked = false;
 
+  // Clamp position so image stays inside viewport (considering half image size)
+  function clampPosition(x, y) {
+    if (!overlayImage.complete) return {x, y}; // image not loaded yet
+    const iw = overlayImage.naturalWidth * scale;
+    const ih = overlayImage.naturalHeight * scale;
+
+    const halfW = Math.min(iw, window.innerWidth*0.8)/2;
+    const halfH = Math.min(ih, window.innerHeight*0.8)/2;
+
+    const minX = halfW;
+    const maxX = window.innerWidth - halfW;
+    const minY = halfH;
+    const maxY = window.innerHeight - halfH;
+
+    return {
+      x: Math.min(maxX, Math.max(minX, x)),
+      y: Math.min(maxY, Math.max(minY, y))
+    };
+  }
+
   function updateTransform() {
+    // Clamp pos to keep image fully visible on screen
+    const pos = clampPosition(posX, posY);
+    posX = pos.x;
+    posY = pos.y;
+
     overlayImage.style.top = `${posY}px`;
     overlayImage.style.left = `${posX}px`;
     overlayImage.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rotation}deg)`;
@@ -136,27 +164,17 @@
 
   // Camera stream (back camera, no flip)
   try {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: { exact: "environment" },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-    },
-    audio: false,
-  });
-  video.srcObject = stream;
-} catch (err) {
-  // fallback
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: "environment",
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-    },
-    audio: false,
-  });
-  video.srcObject = stream;
-}
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { exact: "environment" } }, audio: false
+    });
+    video.srcObject = stream;
+  } catch (err) {
+    // fallback if exact environment camera not available
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }, audio: false
+    });
+    video.srcObject = stream;
+  }
 
   // Dragging events (disable if locked)
   overlayImage.addEventListener('pointerdown', e => {
@@ -229,6 +247,8 @@
     const url = URL.createObjectURL(file);
     overlayImage.src = url;
     overlayImage.style.display = 'block';
+
+    // Reset to center and scale/rotation 1/0
     posX = window.innerWidth / 2;
     posY = window.innerHeight / 2;
     scale = 1;
@@ -236,6 +256,15 @@
     opacityRange.value = 60;
     rotateRange.value = 0;
     overlayImage.style.opacity = 0.6;
+
+    // When image loads, clamp position in case big image
+    overlayImage.onload = () => {
+      const clamped = clampPosition(posX, posY);
+      posX = clamped.x;
+      posY = clamped.y;
+      updateTransform();
+    };
+
     updateTransform();
   });
 
@@ -260,20 +289,32 @@
   lockBtn.addEventListener('click', () => {
     isLocked = !isLocked;
     lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
+    if(isLocked) {
+      lockBtn.classList.add('locked');
+    } else {
+      lockBtn.classList.remove('locked');
+    }
   });
 
   // Initial call to set transform
   updateTransform();
 
-  // Re-request wake lock on visibility change (some browsers release it when tab inactive)
+  // Re-request wake lock on visibility change
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && wakeLock === null) {
       requestWakeLock();
     }
+  });
+
+  // On resize, clamp image position again to keep visible
+  window.addEventListener('resize', () => {
+    const clamped = clampPosition(posX, posY);
+    posX = clamped.x;
+    posY = clamped.y;
+    updateTransform();
   });
 })();
 </script>
 
 </body>
 </html>
-
