@@ -31,6 +31,7 @@
     touch-action: none;
     z-index: 2;
     user-select: none;
+    transition: filter 0.3s ease;
   }
   #controls {
     position: fixed;
@@ -39,7 +40,7 @@
     right: 0;
     max-height: 240px;
     background: rgba(0,0,0,0.7);
-    padding: 10px 15px 30px 15px; /* extra bottom padding */
+    padding: 10px 15px 30px 15px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -64,12 +65,31 @@
     border: none;
     cursor: pointer;
     user-select: none;
+    transition: background-color 0.2s ease;
   }
   #controls button:hover {
     background-color: #1669c1;
   }
+  /* Lock button top-right */
+  #lockBtn {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    width: 60px;
+    padding: 8px 0;
+    background-color: #1a73e8;
+    border-radius: 8px;
+    font-weight: bold;
+    z-index: 5;
+  }
   #lockBtn.locked {
     background-color: #e84545;
+  }
+  #filterBtn {
+    background-color: #388e3c;
+  }
+  #filterBtn.active {
+    background-color: #2e7d32;
   }
 </style>
 </head>
@@ -89,8 +109,10 @@
   <input type="file" id="fileInput" accept="image/*" style="display:none;" />
 
   <button id="resetBtn">Reset</button>
-  <button id="lockBtn">Lock</button>
+  <button id="filterBtn">Filter</button>
 </div>
+
+<button id="lockBtn">Lock</button>
 
 <script>
 (async () => {
@@ -102,6 +124,7 @@
   const opacityRange = document.getElementById('opacityRange');
   const rotateRange = document.getElementById('rotateRange');
   const lockBtn = document.getElementById('lockBtn');
+  const filterBtn = document.getElementById('filterBtn');
 
   // Wake Lock API
   let wakeLock = null;
@@ -116,7 +139,6 @@
       console.error(`${err.name}, ${err.message}`);
     }
   }
-  // Request wake lock on load
   requestWakeLock();
 
   // Variables for transform and lock state
@@ -130,18 +152,17 @@
   let lastY = 0;
   let dragging = false;
   let isLocked = false;
+  let isFiltered = false;
 
   // Track pointer count to prevent pointermove drag when multitouch active
   let pointerDownCount = 0;
 
-  // Clamp helper
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
 
-  // Clamp position so image stays inside viewport (considering half image size)
   function clampPosition(x, y) {
-    if (!overlayImage.complete) return {x, y}; // image not loaded yet
+    if (!overlayImage.complete) return {x, y};
     const iw = overlayImage.naturalWidth * scale;
     const ih = overlayImage.naturalHeight * scale;
 
@@ -160,7 +181,6 @@
   }
 
   function updateTransform() {
-    // Clamp pos to keep image fully visible on screen
     const pos = clampPosition(posX, posY);
     posX = pos.x;
     posY = pos.y;
@@ -168,6 +188,13 @@
     overlayImage.style.top = `${posY}px`;
     overlayImage.style.left = `${posX}px`;
     overlayImage.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rotation}deg)`;
+
+    // Apply filter CSS if filtered
+    if (isFiltered) {
+      overlayImage.style.filter = 'grayscale(80%) brightness(120%) contrast(150%)';
+    } else {
+      overlayImage.style.filter = 'none';
+    }
   }
 
   // Camera stream (back camera, no flip)
@@ -177,14 +204,13 @@
     });
     video.srcObject = stream;
   } catch (err) {
-    // fallback if exact environment camera not available
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
     });
     video.srcObject = stream;
   }
 
-  // Pointer event handlers for drag (disable if locked or multitouch)
+  // Pointer drag handlers
   overlayImage.addEventListener('pointerdown', e => {
     pointerDownCount++;
     if (isLocked || pointerDownCount > 1) return;
@@ -219,7 +245,7 @@
     overlayImage.releasePointerCapture(e.pointerId);
   });
 
-  // Pinch zoom and rotate (disable if locked)
+  // Pinch zoom and rotate handlers
   overlayImage.addEventListener('touchmove', e => {
     if (isLocked) return;
     if (e.touches.length === 2) {
@@ -235,10 +261,9 @@
       if (lastTouchDist !== null) {
         let scaleChange = dist / lastTouchDist;
         scale *= scaleChange;
-        scale = clamp(scale, 0.05, 20); // Wide clamp for zooming very far
+        scale = clamp(scale, 0.05, 20);
 
         let angleChange = angle - lastTouchAngle;
-        // Normalize angleChange to [-180, 180]
         if (angleChange > 180) angleChange -= 360;
         else if (angleChange < -180) angleChange += 360;
 
@@ -265,9 +290,8 @@
     lastTouchAngle = null;
   });
 
-  // Upload image button
+  // Upload image
   uploadBtn.addEventListener('click', () => fileInput.click());
-
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -281,6 +305,8 @@
     rotation = 0;
     opacityRange.value = 60;
     rotateRange.value = 0;
+    isFiltered = false;
+    filterBtn.classList.remove('active');
     overlayImage.style.opacity = 0.6;
 
     overlayImage.onload = () => {
@@ -293,12 +319,12 @@
     updateTransform();
   });
 
-  // Opacity control
+  // Opacity slider
   opacityRange.addEventListener('input', e => {
     overlayImage.style.opacity = e.target.value / 100;
   });
 
-  // Rotation control (slider)
+  // Rotate slider
   rotateRange.addEventListener('input', e => {
     rotation = parseInt(e.target.value);
     updateTransform();
@@ -308,20 +334,27 @@
   resetBtn.addEventListener('click', () => {
     overlayImage.style.display = 'none';
     overlayImage.src = '';
+    isFiltered = false;
+    filterBtn.classList.remove('active');
   });
 
-  // Lock button toggle
+  // Lock toggle button
   lockBtn.addEventListener('click', () => {
     isLocked = !isLocked;
     lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
-    if (isLocked) {
-      lockBtn.classList.add('locked');
-    } else {
-      lockBtn.classList.remove('locked');
-    }
+    if (isLocked) lockBtn.classList.add('locked');
+    else lockBtn.classList.remove('locked');
   });
 
-  // Initial call to set transform
+  // Filter toggle button
+  filterBtn.addEventListener('click', () => {
+    if (!overlayImage.src) return; // No image loaded
+    isFiltered = !isFiltered;
+    filterBtn.classList.toggle('active', isFiltered);
+    updateTransform();
+  });
+
+  // Initial transform call
   updateTransform();
 
   // Re-request wake lock on visibility change
@@ -331,7 +364,7 @@
     }
   });
 
-  // On resize, clamp image position again to keep visible
+  // Clamp image position on resize
   window.addEventListener('resize', () => {
     const clamped = clampPosition(posX, posY);
     posX = clamped.x;
