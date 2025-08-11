@@ -131,6 +131,14 @@
   let dragging = false;
   let isLocked = false;
 
+  // Track pointer count to prevent pointermove drag when multitouch active
+  let pointerDownCount = 0;
+
+  // Clamp helper
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
   // Clamp position so image stays inside viewport (considering half image size)
   function clampPosition(x, y) {
     if (!overlayImage.complete) return {x, y}; // image not loaded yet
@@ -165,20 +173,21 @@
   // Camera stream (back camera, no flip)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: "environment" } }, audio: false
+      video: { facingMode: { exact: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
     });
     video.srcObject = stream;
   } catch (err) {
     // fallback if exact environment camera not available
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" }, audio: false
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
     });
     video.srcObject = stream;
   }
 
-  // Dragging events (disable if locked)
+  // Pointer event handlers for drag (disable if locked or multitouch)
   overlayImage.addEventListener('pointerdown', e => {
-    if (isLocked) return;
+    pointerDownCount++;
+    if (isLocked || pointerDownCount > 1) return;
     e.preventDefault();
     dragging = true;
     lastX = e.clientX;
@@ -187,7 +196,7 @@
   });
 
   overlayImage.addEventListener('pointermove', e => {
-    if (isLocked || !dragging) return;
+    if (isLocked || dragging === false || pointerDownCount > 1) return;
     e.preventDefault();
     let dx = e.clientX - lastX;
     let dy = e.clientY - lastY;
@@ -199,6 +208,13 @@
   });
 
   overlayImage.addEventListener('pointerup', e => {
+    pointerDownCount = Math.max(0, pointerDownCount - 1);
+    dragging = false;
+    overlayImage.releasePointerCapture(e.pointerId);
+  });
+
+  overlayImage.addEventListener('pointercancel', e => {
+    pointerDownCount = Math.max(0, pointerDownCount - 1);
     dragging = false;
     overlayImage.releasePointerCapture(e.pointerId);
   });
@@ -219,9 +235,15 @@
       if (lastTouchDist !== null) {
         let scaleChange = dist / lastTouchDist;
         scale *= scaleChange;
+        scale = clamp(scale, 0.05, 20); // Wide clamp for zooming very far
 
         let angleChange = angle - lastTouchAngle;
+        // Normalize angleChange to [-180, 180]
+        if (angleChange > 180) angleChange -= 360;
+        else if (angleChange < -180) angleChange += 360;
+
         rotation += angleChange;
+        rotation = ((rotation % 360) + 360) % 360;
       }
 
       lastTouchDist = dist;
@@ -238,6 +260,11 @@
     }
   });
 
+  overlayImage.addEventListener('touchcancel', e => {
+    lastTouchDist = null;
+    lastTouchAngle = null;
+  });
+
   // Upload image button
   uploadBtn.addEventListener('click', () => fileInput.click());
 
@@ -248,7 +275,6 @@
     overlayImage.src = url;
     overlayImage.style.display = 'block';
 
-    // Reset to center and scale/rotation 1/0
     posX = window.innerWidth / 2;
     posY = window.innerHeight / 2;
     scale = 1;
@@ -257,7 +283,6 @@
     rotateRange.value = 0;
     overlayImage.style.opacity = 0.6;
 
-    // When image loads, clamp position in case big image
     overlayImage.onload = () => {
       const clamped = clampPosition(posX, posY);
       posX = clamped.x;
@@ -289,7 +314,7 @@
   lockBtn.addEventListener('click', () => {
     isLocked = !isLocked;
     lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
-    if(isLocked) {
+    if (isLocked) {
       lockBtn.classList.add('locked');
     } else {
       lockBtn.classList.remove('locked');
