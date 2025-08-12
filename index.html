@@ -206,7 +206,7 @@
     };
   }
 
-  function updateTransform() {
+  function updateTransform(save=true) {
     const pos = clampPosition(posX, posY);
     posX = pos.x;
     posY = pos.y;
@@ -218,6 +218,56 @@
     overlayImage.style.filter = isFiltered
       ? 'grayscale(80%) brightness(120%) contrast(150%)'
       : 'none';
+
+    if (save) saveState();
+  }
+
+  function saveState() {
+    if (!overlayImage.src) return;
+    const state = {
+      src: overlayImage.src,
+      x: posX,
+      y: posY,
+      scale,
+      rotation,
+      opacity: parseFloat(overlayImage.style.opacity) || 0.6,
+      locked: isLocked,
+      filtered: isFiltered
+    };
+    try {
+      localStorage.setItem('arImageState', JSON.stringify(state));
+    } catch(e) {
+      console.warn('Failed to save state', e);
+    }
+  }
+
+  function loadState() {
+    const saved = localStorage.getItem('arImageState');
+    if (!saved) return false;
+
+    try {
+      const state = JSON.parse(saved);
+      overlayImage.src = state.src;
+      posX = state.x ?? (window.innerWidth / 2);
+      posY = state.y ?? (window.innerHeight / 2);
+      scale = state.scale ?? 1;
+      rotation = state.rotation ?? 0;
+      overlayImage.style.opacity = state.opacity ?? 0.6;
+      opacityRange.value = (state.opacity ?? 0.6) * 100;
+      isFiltered = !!state.filtered;
+      isLocked = !!state.locked;
+
+      filterBtn.classList.toggle('active', isFiltered);
+      lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
+      lockBtn.classList.toggle('locked', isLocked);
+
+      overlayImage.style.display = 'block';
+
+      return true;
+    } catch(e) {
+      console.warn('Failed to load state', e);
+      return false;
+    }
   }
 
   // Camera stream
@@ -317,30 +367,31 @@
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    overlayImage.src = url;
-    overlayImage.style.display = 'block';
 
-    posX = window.innerWidth / 2;
-    posY = window.innerHeight / 2;
-    scale = 1;
-    rotation = 0;
-    opacityRange.value = 60;
-    isFiltered = false;
-    filterBtn.classList.remove('active');
-    overlayImage.style.opacity = 0.6;
+    // Read file as base64
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      overlayImage.src = ev.target.result;
+      overlayImage.style.display = 'block';
 
-    overlayImage.onload = () => {
-      const clamped = clampPosition(posX, posY);
-      posX = clamped.x;
-      posY = clamped.y;
+      posX = window.innerWidth / 2;
+      posY = window.innerHeight / 2;
+      scale = 1;
+      rotation = 0;
+      opacityRange.value = 60;
+      overlayImage.style.opacity = 0.6;
+      isFiltered = false;
+      filterBtn.classList.remove('active');
+
       updateTransform();
     };
+    reader.readAsDataURL(file);
   });
 
   // Opacity slider
   opacityRange.addEventListener('input', e => {
     overlayImage.style.opacity = e.target.value / 100;
+    saveState();
   });
 
   // Reset
@@ -349,6 +400,14 @@
     overlayImage.src = '';
     isFiltered = false;
     filterBtn.classList.remove('active');
+    isLocked = false;
+    lockBtn.textContent = 'Lock';
+    lockBtn.classList.remove('locked');
+    opacityRange.value = 60;
+    overlayImage.style.opacity = 0.6;
+
+    // Remove saved data
+    localStorage.removeItem('arImageState');
   });
 
   // Lock toggle
@@ -356,6 +415,7 @@
     isLocked = !isLocked;
     lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
     lockBtn.classList.toggle('locked', isLocked);
+    saveState();
   });
 
   // Filter toggle
@@ -373,8 +433,19 @@
     toggleControlsBtn.textContent = isHidden ? 'Hide' : 'Show';
   });
 
-  // Initial transform
-  updateTransform();
+  // Initial load
+  const loaded = loadState();
+  if (loaded) {
+    // Wait for image load to update transform
+    overlayImage.onload = () => {
+      updateTransform(false); // false = no save on load
+    };
+  } else {
+    // No saved data, start unlocked
+    isLocked = false;
+    lockBtn.textContent = 'Lock';
+    lockBtn.classList.remove('locked');
+  }
 
   // Re-request wake lock on visibility change
   document.addEventListener('visibilitychange', () => {
