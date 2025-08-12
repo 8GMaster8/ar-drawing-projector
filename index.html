@@ -50,9 +50,6 @@
     z-index: 3;
     box-sizing: border-box;
   }
-  #controls.hidden {
-    display: none;
-  }
   #controls label {
     font-size: 14px;
   }
@@ -73,8 +70,8 @@
   #controls button:hover {
     background-color: #1669c1;
   }
-  /* Top-right button group */
-  .top-right-buttons {
+  /* Buttons top-right */
+  #topButtons {
     position: fixed;
     top: 15px;
     right: 15px;
@@ -82,17 +79,23 @@
     gap: 10px;
     z-index: 5;
   }
-  .top-right-buttons button {
-    padding: 8px 10px;
-    background-color: #1a73e8;
+  #topButtons button {
+    width: 60px;
+    padding: 8px 0;
     border-radius: 8px;
     font-weight: bold;
     border: none;
-    color: white;
     cursor: pointer;
+    color: white;
+  }
+  #lockBtn {
+    background-color: #1a73e8;
   }
   #lockBtn.locked {
     background-color: #e84545;
+  }
+  #toggleControlsBtn {
+    background-color: #555;
   }
   #filterBtn {
     background-color: #388e3c;
@@ -126,12 +129,6 @@
   <label for="opacityRange">Opacity</label>
   <input type="range" id="opacityRange" min="0" max="100" value="60" />
 
-  <!-- Rotation slider disabled -->
-  <!--
-  <label for="rotateRange">Rotate</label>
-  <input type="range" id="rotateRange" min="-180" max="180" value="0" />
-  -->
-
   <button id="uploadBtn">Upload Image</button>
   <input type="file" id="fileInput" accept="image/*" style="display:none;" />
 
@@ -139,9 +136,9 @@
   <button id="filterBtn">Filter</button>
 </div>
 
-<div class="top-right-buttons">
+<div id="topButtons">
   <button id="lockBtn">Lock</button>
-  <button id="toggleControlsBtn">Hide Controls</button>
+  <button id="toggleControlsBtn">Hide</button>
 </div>
 
 <script>
@@ -155,6 +152,7 @@
   const lockBtn = document.getElementById('lockBtn');
   const filterBtn = document.getElementById('filterBtn');
   const toggleControlsBtn = document.getElementById('toggleControlsBtn');
+  const controls = document.getElementById('controls');
 
   // Wake Lock API
   let wakeLock = null;
@@ -183,8 +181,6 @@
   let dragging = false;
   let isLocked = false;
   let isFiltered = false;
-
-  // Track pointer count
   let pointerDownCount = 0;
 
   function clamp(value, min, max) {
@@ -201,7 +197,7 @@
 
     const minX = halfW;
     const maxX = window.innerWidth - halfW;
-    const minY = halfH;
+    const minY = halfH - 40; // allow image to move past top bar
     const maxY = window.innerHeight - halfH;
 
     return {
@@ -219,11 +215,9 @@
     overlayImage.style.left = `${posX}px`;
     overlayImage.style.transform = `translate(-50%, -50%) scale(${scale}) rotate(${rotation}deg)`;
 
-    if (isFiltered) {
-      overlayImage.style.filter = 'grayscale(80%) brightness(120%) contrast(150%)';
-    } else {
-      overlayImage.style.filter = 'none';
-    }
+    overlayImage.style.filter = isFiltered
+      ? 'grayscale(80%) brightness(120%) contrast(150%)'
+      : 'none';
   }
 
   // Camera stream
@@ -239,7 +233,7 @@
     video.srcObject = stream;
   }
 
-  // Pointer drag
+  // Pointer drag handlers
   overlayImage.addEventListener('pointerdown', e => {
     pointerDownCount++;
     if (isLocked || pointerDownCount > 1) return;
@@ -251,7 +245,7 @@
   });
 
   overlayImage.addEventListener('pointermove', e => {
-    if (isLocked || dragging === false || pointerDownCount > 1) return;
+    if (isLocked || !dragging || pointerDownCount > 1) return;
     e.preventDefault();
     let dx = e.clientX - lastX;
     let dy = e.clientY - lastY;
@@ -302,7 +296,6 @@
 
       lastTouchDist = dist;
       lastTouchAngle = angle;
-
       updateTransform();
     }
   });
@@ -319,7 +312,7 @@
     lastTouchAngle = null;
   });
 
-  // Upload image
+  // Upload
   uploadBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', e => {
     const file = e.target.files[0];
@@ -343,8 +336,6 @@
       posY = clamped.y;
       updateTransform();
     };
-
-    updateTransform();
   });
 
   // Opacity slider
@@ -352,7 +343,7 @@
     overlayImage.style.opacity = e.target.value / 100;
   });
 
-  // Reset button
+  // Reset
   resetBtn.addEventListener('click', () => {
     overlayImage.style.display = 'none';
     overlayImage.src = '';
@@ -375,18 +366,17 @@
     updateTransform();
   });
 
-  // Hide/show controls
+  // Toggle controls visibility
   toggleControlsBtn.addEventListener('click', () => {
-    document.getElementById('controls').classList.toggle('hidden');
-    toggleControlsBtn.textContent = document.getElementById('controls').classList.contains('hidden')
-      ? 'Show Controls'
-      : 'Hide Controls';
+    const isHidden = controls.style.display === 'none';
+    controls.style.display = isHidden ? 'flex' : 'none';
+    toggleControlsBtn.textContent = isHidden ? 'Hide' : 'Show';
   });
 
   // Initial transform
   updateTransform();
 
-  // Re-request wake lock
+  // Re-request wake lock on visibility change
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && wakeLock === null) {
       requestWakeLock();
